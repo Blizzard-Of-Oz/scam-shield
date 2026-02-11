@@ -17,7 +17,7 @@ Scam Shield is a privacy-first Progressive Web App (PWA-ready foundation) that h
   - `POST /api/report`
   - `GET /api/reports?limit=20`
 - SQLite-backed report storage
-- Unit tests for analyzer, URL canonicalization/hash, rate limiting, and report validation utilities
+- Unit tests for analyzer, URL canonicalization/hash, share-card formatting, rate limiting, and report validation utilities
 - ESLint + Prettier setup
 - GitHub Actions CI for lint + tests on push and pull requests
 
@@ -155,13 +155,24 @@ Response JSON:
 }
 ```
 
-## Sharing behavior
+## Sharing as image
 
-On the home page results panel, Scam Shield supports growth-friendly sharing while keeping user input private:
+On the home page results panel, Scam Shield supports privacy-first sharing with a generated PNG card (1080x1080):
 
-- **Copy verdict** copies a formatted summary with verdict, score, reasons, and a safety tip.
-- **Share** uses the native Web Share API when available; otherwise it falls back to clipboard copy.
-- Shared text is privacy-first and **does not include the user's full original message**.
+- **Share image** generates a local canvas image and uses the native Web Share API with files when available.
+- If file sharing is unavailable, it falls back to downloading the image and shows `Downloaded (sharing not supported)`.
+- **Download image** always downloads `scam-shield-verdict.png`.
+- The image includes verdict, score/progress, top reasons, and detected domains only. It **never includes the user's full pasted message**.
+
+## Optional legacy duplicate merge
+
+If you have older DB rows from before URL hash/count dedupe fields were populated, you can run a one-time cleanup:
+
+```bash
+npm run db:merge-legacy
+```
+
+This script recomputes canonical URL hashes, merges duplicate rows by newest `updatedAt`, sums counts, fills missing `scamType`/`note` where possible, and deletes redundant rows.
 
 ## Roadmap
 

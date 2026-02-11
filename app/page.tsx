@@ -6,6 +6,7 @@ import { VerdictBadge } from '@/components/VerdictBadge';
 import type { AnalysisResult } from '@/lib/analyzer';
 import { SCAM_TYPES } from '@/lib/reporting';
 import { formatVerdictSummary } from '@/lib/shareFormat';
+import { generateShareCardPng } from '@/lib/shareCard';
 
 const EXAMPLE_SCAM =
   'URGENT: Your bank account is locked. Verify immediately at http://198.51.100.8/login to avoid suspension.';
@@ -93,32 +94,53 @@ export default function HomePage() {
     }
   }
 
-  async function shareVerdictSummary() {
+  function triggerDownload(blob: Blob, fileName: string) {
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = fileName;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(objectUrl);
+  }
+
+  async function downloadVerdictImage() {
     if (!result) {
       return;
     }
 
-    const summary = formatVerdictSummary(result);
+    try {
+      const blob = await generateShareCardPng(result);
+      triggerDownload(blob, 'scam-shield-verdict.png');
+      setShareMessage('Image downloaded.');
+    } catch {
+      setShareMessage('Unable to generate image in this browser.');
+    }
+  }
 
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: 'Scam Shield verdict',
-          text: summary,
-        });
-        setShareMessage('Shared successfully.');
-      } catch {
-        setShareMessage('Share was cancelled or failed.');
-      }
-
+  async function shareVerdictImage() {
+    if (!result) {
       return;
     }
 
     try {
-      await navigator.clipboard.writeText(summary);
-      setShareMessage('Share is unavailable here, so the verdict was copied.');
+      const blob = await generateShareCardPng(result);
+      const file = new File([blob], 'scam-shield-verdict.png', { type: 'image/png' });
+
+      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({
+          title: 'Scam Shield verdict',
+          files: [file],
+        });
+        setShareMessage('Shared successfully.');
+        return;
+      }
+
+      triggerDownload(blob, 'scam-shield-verdict.png');
+      setShareMessage('Downloaded (sharing not supported)');
     } catch {
-      setShareMessage('Share and clipboard are unavailable in this browser.');
+      setShareMessage('Share was cancelled or failed.');
     }
   }
 
@@ -307,10 +329,17 @@ export default function HomePage() {
             </button>
             <button
               type="button"
-              onClick={shareVerdictSummary}
+              onClick={shareVerdictImage}
               className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
             >
-              Share
+              Share image
+            </button>
+            <button
+              type="button"
+              onClick={downloadVerdictImage}
+              className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Download image
             </button>
             {canReport ? (
               <button

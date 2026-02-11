@@ -12,7 +12,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "db:generate": "node scripts/db-generate.mjs",
-    "db:migrate": "node scripts/db-migrate.mjs"
+    "db:migrate": "node scripts/db-migrate.mjs",
+    "db:merge-legacy": "node --experimental-strip-types scripts/mergeLegacyDuplicates.ts"
   },
   "dependencies": {
     "next": "^14.2.25",
