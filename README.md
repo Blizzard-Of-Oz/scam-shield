@@ -83,6 +83,14 @@ Response JSON:
 }
 ```
 
+## Sharing behavior
+
+On the home page results panel, Scam Shield supports growth-friendly sharing while keeping user input private:
+
+- **Copy verdict** copies a formatted summary with verdict, score, reasons, and a safety tip.
+- **Share** uses the native Web Share API when available; otherwise it falls back to clipboard copy.
+- Shared text is privacy-first and **does not include the user's full original message**.
+
 ## Roadmap
 
 - Add client-side safeguards for risky link previews
