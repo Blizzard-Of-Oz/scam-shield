@@ -39,7 +39,7 @@ function ensureColumn(table: string, column: string, definition: string) {
 }
 
 export function applyMigrations() {
-  const migrationSql = `
+  const createTableSql = `
     CREATE TABLE IF NOT EXISTS ScamReport (
       id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -52,15 +52,15 @@ export function applyMigrations() {
       count INTEGER NOT NULL DEFAULT 1,
       updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-
-    CREATE INDEX IF NOT EXISTS ScamReport_urlHash_idx ON ScamReport(urlHash);
-    CREATE INDEX IF NOT EXISTS ScamReport_updatedAt_idx ON ScamReport(updatedAt);
   `;
 
-  runSql(migrationSql);
+  runSql(createTableSql);
   ensureColumn('ScamReport', 'urlHash', 'TEXT');
   ensureColumn('ScamReport', 'count', 'INTEGER NOT NULL DEFAULT 1');
   ensureColumn('ScamReport', 'updatedAt', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP');
+
+  runSql(`CREATE INDEX IF NOT EXISTS ScamReport_urlHash_idx ON ScamReport(urlHash);`);
+  runSql(`CREATE INDEX IF NOT EXISTS ScamReport_updatedAt_idx ON ScamReport(updatedAt);`);
 
   runSql(`UPDATE ScamReport SET urlHash = '' WHERE urlHash IS NULL;`);
   runSql(`UPDATE ScamReport SET updatedAt = createdAt WHERE updatedAt IS NULL;`);
