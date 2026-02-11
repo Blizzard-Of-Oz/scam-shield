@@ -29,8 +29,12 @@ export default function ReportsPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <VerdictBadge verdict={report.verdict} />
                 <p className="text-sm font-medium text-slate-700">Score: {report.score}/100</p>
-                <p className="text-sm text-slate-500">{relativeTimeFromNow(report.createdAt)}</p>
+                <p className="text-sm text-slate-500">Last seen {relativeTimeFromNow(report.updatedAt)}</p>
               </div>
+
+              {report.count > 1 ? (
+                <p className="text-sm text-slate-700">Reported {report.count} time(s)</p>
+              ) : null}
 
               <p className="text-sm text-slate-700">
                 Scam type: <span className="font-medium">{report.scamType ?? 'Unspecified'}</span>

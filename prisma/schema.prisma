@@ -15,4 +15,9 @@ model ScamReport {
   scamType  String?
   note      String?
   urls      String
+  urlHash   String   @default("")
+  count     Int      @default(1)
+  updatedAt DateTime @updatedAt
+
+  @@index([urlHash])
 }

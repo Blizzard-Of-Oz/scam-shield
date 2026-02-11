@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { insertReport } from '@/lib/db';
+import { insertOrMergeReport } from '@/lib/db';
+import { getClientIp, isRateLimited } from '@/lib/rateLimit';
 import { validateReportInput } from '@/lib/reporting';
 
+const RATE_LIMIT_ERROR = { error: 'Rate limit exceeded. Try again shortly.' };
+
 export async function POST(request: NextRequest) {
+  const ip = getClientIp(request.headers);
+
+  if (isRateLimited(`report:${ip}`, 5, 60_000)) {
+    return NextResponse.json(RATE_LIMIT_ERROR, { status: 429 });
+  }
+
   let payload: unknown;
 
   try {
@@ -13,9 +22,9 @@ export async function POST(request: NextRequest) {
 
   try {
     const validInput = validateReportInput(payload);
-    const id = insertReport(validInput);
+    const result = insertOrMergeReport(validInput);
 
-    return NextResponse.json({ ok: true, id }, { status: 201 });
+    return NextResponse.json({ ok: true, ...result }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Invalid request body.';
 

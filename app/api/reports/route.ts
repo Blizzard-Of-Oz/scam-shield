@@ -9,11 +9,13 @@ export async function GET(request: NextRequest) {
   const reports = getRecentReports(limit).map((report) => ({
     id: report.id,
     createdAt: report.createdAt,
+    updatedAt: report.updatedAt,
     verdict: report.verdict,
     score: report.score,
     scamType: report.scamType,
     note: report.note,
     urls: report.urls,
+    count: report.count,
   }));
 
   return NextResponse.json({ reports }, { status: 200 });

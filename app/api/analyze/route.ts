@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { analyzeText } from '@/lib/analyzer';
+import { getClientIp, isRateLimited } from '@/lib/rateLimit';
+
+const RATE_LIMIT_ERROR = { error: 'Rate limit exceeded. Try again shortly.' };
 
 export async function POST(request: NextRequest) {
+  const ip = getClientIp(request.headers);
+
+  if (isRateLimited(`analyze:${ip}`, 30, 60_000)) {
+    return NextResponse.json(RATE_LIMIT_ERROR, { status: 429 });
+  }
+
   let payload: unknown;
 
   try {

@@ -1,4 +1,5 @@
 import type { Verdict } from '@/lib/analyzer';
+import { sanitizeAndCanonicalizeUrls } from '@/lib/urlCanonicalize';
 
 export const SCAM_TYPES = [
   'Bank impersonation',
@@ -22,47 +23,19 @@ export type ReportInput = {
 export type ScamReportRecord = {
   id: number;
   createdAt: string;
+  updatedAt: string;
   verdict: Verdict;
   score: number;
   scamType: ScamType | null;
   note: string | null;
   urls: string[];
+  count: number;
 };
 
 const VERDICTS: Verdict[] = ['SAFE', 'SUSPICIOUS', 'DANGEROUS'];
 
 export function sanitizeUrls(urls: string[]): string[] {
-  const unique: string[] = [];
-
-  for (const rawUrl of urls) {
-    if (typeof rawUrl !== 'string') {
-      continue;
-    }
-
-    const trimmed = rawUrl.trim();
-
-    if (!trimmed) {
-      continue;
-    }
-
-    try {
-      const parsed = new URL(trimmed);
-
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        continue;
-      }
-
-      const normalized = parsed.toString();
-
-      if (!unique.includes(normalized)) {
-        unique.push(normalized);
-      }
-    } catch {
-      // Ignore invalid URLs.
-    }
-  }
-
-  return unique;
+  return sanitizeAndCanonicalizeUrls(urls);
 }
 
 export function validateReportInput(payload: unknown): ReportInput {
@@ -104,6 +77,16 @@ export function validateReportInput(payload: unknown): ReportInput {
 
   if (!Array.isArray(urls)) {
     throw new Error('urls must be an array of strings.');
+  }
+
+  if (urls.length > 5) {
+    throw new Error('At most 5 URLs are allowed per report.');
+  }
+
+  for (const url of urls) {
+    if (typeof url === 'string' && url.length > 2048) {
+      throw new Error('Each URL must be 2048 characters or fewer.');
+    }
   }
 
   const sanitizedUrls = sanitizeUrls(urls);

@@ -17,7 +17,7 @@ Scam Shield is a privacy-first Progressive Web App (PWA-ready foundation) that h
   - `POST /api/report`
   - `GET /api/reports?limit=20`
 - SQLite-backed report storage
-- Unit tests for analyzer and report validation utilities
+- Unit tests for analyzer, URL canonicalization/hash, rate limiting, and report validation utilities
 - ESLint + Prettier setup
 - GitHub Actions CI for lint + tests on push and pull requests
 
@@ -35,6 +35,12 @@ Scam Shield is built privacy-first:
   - timestamp
 - Report sharing requires explicit user opt-in confirmations
 - No external paid APIs
+
+Anti-abuse protections:
+
+- `POST /api/analyze`: max **30 requests/minute** per client IP
+- `POST /api/report`: max **5 requests/minute** per client IP
+- Exceeded limits return `429` with `{ "error": "Rate limit exceeded. Try again shortly." }`
 
 ## Quick start (local)
 
@@ -117,8 +123,15 @@ Request JSON:
 Response JSON:
 
 ```json
-{ "ok": true, "id": 1 }
+{ "ok": true, "id": 1, "merged": false }
 ```
+
+Dedupe behavior for `POST /api/report`:
+
+- URLs are canonicalized (`http/https` only, host lower-cased, fragment removed, trailing slash normalized).
+- Up to 5 URLs accepted, with max 2048 chars per URL.
+- A stable SHA-256 hash of canonical URLs is used to merge duplicate reports from the last 24 hours.
+- Duplicate reports increment a `count` and refresh `updatedAt` instead of creating a new row.
 
 ### `GET /api/reports?limit=20`
 
@@ -130,11 +143,13 @@ Response JSON:
     {
       "id": 1,
       "createdAt": "2026-02-11T00:00:00.000Z",
+      "updatedAt": "2026-02-11T00:05:00.000Z",
       "verdict": "DANGEROUS",
       "score": 85,
       "scamType": "Bank impersonation",
       "note": "optional note",
-      "urls": ["https://example.com"]
+      "urls": ["https://example.com"],
+      "count": 2
     }
   ]
 }
