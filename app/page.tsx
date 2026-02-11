@@ -58,11 +58,11 @@ export default function HomePage() {
         body: JSON.stringify({ text }),
       });
 
-      if (!response.ok) {
-        throw new Error('Could not analyze input right now.');
-      }
+      const data = (await response.json()) as AnalysisResult & { error?: string };
 
-      const data = (await response.json()) as AnalysisResult;
+      if (!response.ok) {
+        throw new Error(data.error ?? 'Could not analyze input right now.');
+      }
       setResult(data);
       setReportOpen(false);
       setReportSubmitted(false);
@@ -70,8 +70,9 @@ export default function HomePage() {
       setReportNote('');
       setConfirmNoPersonalInfo(false);
       setConfirmConsent(false);
-    } catch {
-      setError('Something went wrong. Please try again.');
+    } catch (submitError) {
+      const message = submitError instanceof Error ? submitError.message : 'Something went wrong. Please try again.';
+      setError(message);
     } finally {
       setLoading(false);
     }

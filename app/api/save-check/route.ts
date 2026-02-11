@@ -1,8 +1,9 @@
 import { getServerSession } from 'next-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { authOptions } from '@/lib/auth';
-import { saveCheckForUser, upsertUserByEmail } from '@/lib/db';
+import { countSavedChecksByUser, saveCheckForUser, upsertUserByEmail } from '@/lib/db';
 import { extractHostnames, validateSaveCheckInput } from '@/lib/historyStorage';
+import { hasReachedSavedChecksLimit } from '@/lib/plan';
 
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -26,6 +27,13 @@ export async function POST(request: NextRequest) {
       name: session.user.name,
       image: session.user.image,
     });
+
+    const savedCount = countSavedChecksByUser(user.id);
+
+    if (hasReachedSavedChecksLimit(user.plan, savedCount)) {
+      return NextResponse.json({ error: 'Free limit reached. Upgrade to Pro.' }, { status: 403 });
+    }
+
     const domains = extractHostnames(valid.urls);
 
     const saved = saveCheckForUser({

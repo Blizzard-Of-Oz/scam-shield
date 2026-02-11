@@ -1,6 +1,6 @@
 import type { NextAuthOptions } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
-import { upsertUserByEmail } from '@/lib/db';
+import { getUserByEmail, upsertUserByEmail } from '@/lib/db';
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -42,6 +42,13 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (session.user && token.sub) {
         session.user.id = token.sub;
+
+        if (session.user.email) {
+          const dbUser = getUserByEmail(session.user.email);
+          session.user.plan = dbUser?.plan === 'pro' ? 'pro' : 'free';
+        } else {
+          session.user.plan = 'free';
+        }
       }
 
       return session;

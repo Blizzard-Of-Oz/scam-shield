@@ -11,11 +11,14 @@ Scam Shield is a privacy-first Progressive Web App (PWA-ready foundation) that h
 - Home page scanner flow (`/`)
 - Privacy page (`/privacy`)
 - Public reports feed (`/reports`)
-- Global top navigation with direct links to Analyzer, Public feed (`/reports`), and Privacy
+- Global top navigation with direct links to Analyzer, Public feed (`/reports`), My History, Pricing, and Privacy
 - API routes:
   - `POST /api/analyze`
   - `POST /api/report`
   - `GET /api/reports?limit=20`
+  - `POST /api/stripe/checkout`
+  - `POST /api/stripe/portal`
+  - `POST /api/stripe/webhook`
 - SQLite-backed report storage
 - Unit tests for analyzer, URL canonicalization/hash, share-card formatting, rate limiting, and report validation utilities
 - ESLint + Prettier setup
@@ -38,9 +41,11 @@ Scam Shield is built privacy-first:
 
 Anti-abuse protections:
 
-- `POST /api/analyze`: max **30 requests/minute** per client IP
-- `POST /api/report`: max **5 requests/minute** per client IP
-- Exceeded limits return `429` with `{ "error": "Rate limit exceeded. Try again shortly." }`
+- `POST /api/analyze` (Free): max **30 requests/minute** + **20/day** per user/IP.
+- `POST /api/analyze` (Pro): no enforced daily cap.
+- `POST /api/save-check` (Free): max **5** saved checks.
+- `POST /api/report`: max **5 requests/minute** per client IP.
+- Exceeded limits return `429` or `403` with `{ "error": "Free limit reached. Upgrade to Pro." }` when plan-gated.
 
 ## Quick start (local)
 
@@ -81,6 +86,31 @@ Scam Shield uses Auth.js (NextAuth) with Google OAuth for optional user accounts
    - `NEXTAUTH_SECRET` (generate a long random string)
    - `NEXTAUTH_URL=http://localhost:3000`
 6. Start the app with `npm run dev` and sign in from the top navigation.
+
+
+## Stripe subscriptions (test mode)
+
+1. Create a product in Stripe Dashboard (test mode), e.g. **Scam Shield Pro**.
+2. Create a recurring monthly price and copy the price id (starts with `price_`).
+3. Add these env vars to `.env.local`:
+   - `STRIPE_SECRET_KEY=sk_test_...`
+   - `STRIPE_PRICE_ID=price_...`
+   - `STRIPE_WEBHOOK_SECRET=whsec_...`
+4. Start your app (`npm run dev`).
+5. Start Stripe CLI forwarding:
+
+```bash
+stripe listen --forward-to localhost:3000/api/stripe/webhook
+```
+
+6. Open `http://localhost:3000/pricing`, click **Upgrade to Pro**, and complete test checkout.
+7. After success redirect (`/me/history?upgraded=1`), webhook updates the user plan to `pro`.
+
+To test events manually, use Stripe CLI triggers (for example):
+
+```bash
+stripe trigger checkout.session.completed
+```
 
 ## Run checks
 

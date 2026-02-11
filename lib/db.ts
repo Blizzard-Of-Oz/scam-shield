@@ -1,18 +1,18 @@
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import crypto from 'node:crypto';
-import { hashUrls } from '@/lib/urlHash';
 import { SCAM_TYPES, type ReportInput, type ScamReportRecord } from '@/lib/reporting';
 import type { Verdict } from '@/lib/analyzer';
-
-
+import { hashUrls } from '@/lib/urlHash';
 
 export type UserRecord = {
   id: string;
   name: string | null;
   email: string;
   image: string | null;
+  plan: 'free' | 'pro';
+  stripeCustomerId: string | null;
 };
 
 export type SavedCheckRecord = {
@@ -23,6 +23,18 @@ export type SavedCheckRecord = {
   score: number;
   reasons: string[];
   domains: string[];
+};
+
+export type SubscriptionRecord = {
+  id: string;
+  userId: string;
+  stripeSubscriptionId: string;
+  stripePriceId: string | null;
+  status: string;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  createdAt: string;
+  updatedAt: string;
 };
 
 function resolveDbPath(): string {
@@ -60,7 +72,7 @@ function ensureColumn(table: string, column: string, definition: string) {
 }
 
 export function applyMigrations() {
-  const createTableSql = `
+  runSql(`
     CREATE TABLE IF NOT EXISTS ScamReport (
       id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -73,24 +85,28 @@ export function applyMigrations() {
       count INTEGER NOT NULL DEFAULT 1,
       updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-  `;
+  `);
 
-  runSql(createTableSql);
   ensureColumn('ScamReport', 'urlHash', 'TEXT');
   ensureColumn('ScamReport', 'count', 'INTEGER NOT NULL DEFAULT 1');
   ensureColumn('ScamReport', 'updatedAt', 'DATETIME');
 
-  const createUserTableSql = `
+  runSql(`
     CREATE TABLE IF NOT EXISTS User (
       id TEXT NOT NULL PRIMARY KEY,
       name TEXT,
       email TEXT NOT NULL UNIQUE,
       emailVerified DATETIME,
-      image TEXT
+      image TEXT,
+      plan TEXT NOT NULL DEFAULT 'free',
+      stripeCustomerId TEXT UNIQUE
     );
-  `;
+  `);
 
-  const createSavedCheckTableSql = `
+  ensureColumn('User', 'plan', "TEXT NOT NULL DEFAULT 'free'");
+  ensureColumn('User', 'stripeCustomerId', 'TEXT');
+
+  runSql(`
     CREATE TABLE IF NOT EXISTS SavedCheck (
       id TEXT NOT NULL PRIMARY KEY,
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -101,19 +117,261 @@ export function applyMigrations() {
       domains TEXT NOT NULL,
       FOREIGN KEY (userId) REFERENCES User(id) ON DELETE CASCADE ON UPDATE CASCADE
     );
-  `;
+  `);
 
-  runSql(createUserTableSql);
-  runSql(createSavedCheckTableSql);
+  runSql(`
+    CREATE TABLE IF NOT EXISTS Subscription (
+      id TEXT NOT NULL PRIMARY KEY,
+      userId TEXT NOT NULL UNIQUE,
+      stripeSubscriptionId TEXT NOT NULL UNIQUE,
+      stripePriceId TEXT,
+      status TEXT NOT NULL,
+      currentPeriodEnd DATETIME,
+      cancelAtPeriodEnd INTEGER NOT NULL DEFAULT 0,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (userId) REFERENCES User(id) ON DELETE CASCADE ON UPDATE CASCADE
+    );
+  `);
 
   runSql(`CREATE INDEX IF NOT EXISTS ScamReport_urlHash_idx ON ScamReport(urlHash);`);
   runSql(`CREATE INDEX IF NOT EXISTS ScamReport_updatedAt_idx ON ScamReport(updatedAt);`);
   runSql(`CREATE UNIQUE INDEX IF NOT EXISTS User_email_key ON User(email);`);
+  runSql(`CREATE UNIQUE INDEX IF NOT EXISTS User_stripeCustomerId_key ON User(stripeCustomerId);`);
   runSql(`CREATE INDEX IF NOT EXISTS SavedCheck_userId_createdAt_idx ON SavedCheck(userId, createdAt);`);
+  runSql(`CREATE UNIQUE INDEX IF NOT EXISTS Subscription_userId_key ON Subscription(userId);`);
+  runSql(`CREATE UNIQUE INDEX IF NOT EXISTS Subscription_stripeSubscriptionId_key ON Subscription(stripeSubscriptionId);`);
 
   runSql(`UPDATE ScamReport SET urlHash = '' WHERE urlHash IS NULL;`);
   runSql(`UPDATE ScamReport SET updatedAt = createdAt WHERE updatedAt IS NULL;`);
   runSql(`UPDATE ScamReport SET count = 1 WHERE count IS NULL OR count < 1;`);
+  runSql(`UPDATE User SET plan = 'free' WHERE plan IS NULL OR plan = '';`);
+}
+
+function escapeSqlString(value: string): string {
+  return value.replaceAll("'", "''");
+}
+
+function randomId(): string {
+  return crypto.randomUUID();
+}
+
+function mapUser(row: { id: string; name: string | null; email: string; image: string | null; plan: string | null; stripeCustomerId: string | null }): UserRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    image: row.image,
+    plan: row.plan === 'pro' ? 'pro' : 'free',
+    stripeCustomerId: row.stripeCustomerId,
+  };
+}
+
+export function getUserByEmail(email: string): UserRecord | null {
+  applyMigrations();
+
+  const output = runSql(`
+    SELECT id, name, email, image, plan, stripeCustomerId
+    FROM User
+    WHERE email = '${escapeSqlString(email.trim().toLowerCase())}'
+    LIMIT 1;
+  `);
+
+  if (!output.trim()) {
+    return null;
+  }
+
+  const rows = JSON.parse(output) as Array<{ id: string; name: string | null; email: string; image: string | null; plan: string | null; stripeCustomerId: string | null }>;
+  const row = rows[0];
+  return row ? mapUser(row) : null;
+}
+
+export function getUserByStripeCustomerId(stripeCustomerId: string): UserRecord | null {
+  applyMigrations();
+
+  const output = runSql(`
+    SELECT id, name, email, image, plan, stripeCustomerId
+    FROM User
+    WHERE stripeCustomerId = '${escapeSqlString(stripeCustomerId)}'
+    LIMIT 1;
+  `);
+
+  if (!output.trim()) {
+    return null;
+  }
+
+  const rows = JSON.parse(output) as Array<{ id: string; name: string | null; email: string; image: string | null; plan: string | null; stripeCustomerId: string | null }>;
+  const row = rows[0];
+  return row ? mapUser(row) : null;
+}
+
+export function upsertUserByEmail(input: { email: string; name?: string | null; image?: string | null }): UserRecord {
+  applyMigrations();
+
+  const email = input.email.trim().toLowerCase();
+  const name = input.name?.trim() || null;
+  const image = input.image?.trim() || null;
+
+  const existing = getUserByEmail(email);
+
+  if (existing) {
+    runSql(`
+      UPDATE User
+      SET
+        name = COALESCE(${name ? `'${escapeSqlString(name)}'` : 'NULL'}, name),
+        image = COALESCE(${image ? `'${escapeSqlString(image)}'` : 'NULL'}, image)
+      WHERE id = '${escapeSqlString(existing.id)}';
+    `);
+
+    return {
+      ...existing,
+      name: name ?? existing.name,
+      image: image ?? existing.image,
+    };
+  }
+
+  const id = randomId();
+
+  runSql(`
+    INSERT INTO User (id, name, email, image, plan)
+    VALUES (
+      '${escapeSqlString(id)}',
+      ${name ? `'${escapeSqlString(name)}'` : 'NULL'},
+      '${escapeSqlString(email)}',
+      ${image ? `'${escapeSqlString(image)}'` : 'NULL'},
+      'free'
+    );
+  `);
+
+  return { id, name, email, image, plan: 'free', stripeCustomerId: null };
+}
+
+export function setUserStripeCustomerId(userId: string, stripeCustomerId: string): void {
+  applyMigrations();
+
+  runSql(`
+    UPDATE User
+    SET stripeCustomerId = '${escapeSqlString(stripeCustomerId)}'
+    WHERE id = '${escapeSqlString(userId)}';
+  `);
+}
+
+export function setUserPlan(userId: string, plan: 'free' | 'pro'): void {
+  applyMigrations();
+
+  runSql(`
+    UPDATE User
+    SET plan = '${escapeSqlString(plan)}'
+    WHERE id = '${escapeSqlString(userId)}';
+  `);
+}
+
+export function countSavedChecksByUser(userId: string): number {
+  applyMigrations();
+
+  const output = runSql(`SELECT COUNT(*) AS total FROM SavedCheck WHERE userId = '${escapeSqlString(userId)}';`);
+  const rows = output.trim() ? (JSON.parse(output) as Array<{ total: number }>) : [];
+
+  return Number(rows[0]?.total ?? 0);
+}
+
+export function upsertSubscription(input: {
+  userId: string;
+  stripeSubscriptionId: string;
+  stripePriceId?: string | null;
+  status: string;
+  currentPeriodEnd?: Date | null;
+  cancelAtPeriodEnd?: boolean;
+}): SubscriptionRecord {
+  applyMigrations();
+
+  const existingOutput = runSql(`
+    SELECT id
+    FROM Subscription
+    WHERE stripeSubscriptionId = '${escapeSqlString(input.stripeSubscriptionId)}'
+    LIMIT 1;
+  `);
+
+  const existingRows = existingOutput.trim() ? (JSON.parse(existingOutput) as Array<{ id: string }>) : [];
+  const existing = existingRows[0];
+
+  const currentPeriodEndSql = input.currentPeriodEnd ? `'${input.currentPeriodEnd.toISOString()}'` : 'NULL';
+  const stripePriceIdSql = input.stripePriceId ? `'${escapeSqlString(input.stripePriceId)}'` : 'NULL';
+  const cancelAtPeriodEndSql = input.cancelAtPeriodEnd ? 1 : 0;
+
+  if (existing) {
+    runSql(`
+      UPDATE Subscription
+      SET
+        userId = '${escapeSqlString(input.userId)}',
+        stripePriceId = ${stripePriceIdSql},
+        status = '${escapeSqlString(input.status)}',
+        currentPeriodEnd = ${currentPeriodEndSql},
+        cancelAtPeriodEnd = ${cancelAtPeriodEndSql},
+        updatedAt = CURRENT_TIMESTAMP
+      WHERE id = '${escapeSqlString(existing.id)}';
+    `);
+  } else {
+    runSql(`
+      INSERT INTO Subscription (
+        id,
+        userId,
+        stripeSubscriptionId,
+        stripePriceId,
+        status,
+        currentPeriodEnd,
+        cancelAtPeriodEnd
+      ) VALUES (
+        '${randomId()}',
+        '${escapeSqlString(input.userId)}',
+        '${escapeSqlString(input.stripeSubscriptionId)}',
+        ${stripePriceIdSql},
+        '${escapeSqlString(input.status)}',
+        ${currentPeriodEndSql},
+        ${cancelAtPeriodEndSql}
+      )
+      ON CONFLICT(userId) DO UPDATE SET
+        stripeSubscriptionId = excluded.stripeSubscriptionId,
+        stripePriceId = excluded.stripePriceId,
+        status = excluded.status,
+        currentPeriodEnd = excluded.currentPeriodEnd,
+        cancelAtPeriodEnd = excluded.cancelAtPeriodEnd,
+        updatedAt = CURRENT_TIMESTAMP;
+    `);
+  }
+
+  const output = runSql(`
+    SELECT id, userId, stripeSubscriptionId, stripePriceId, status, currentPeriodEnd, cancelAtPeriodEnd, createdAt, updatedAt
+    FROM Subscription
+    WHERE stripeSubscriptionId = '${escapeSqlString(input.stripeSubscriptionId)}'
+    LIMIT 1;
+  `);
+
+  const rows = JSON.parse(output) as Array<{
+    id: string;
+    userId: string;
+    stripeSubscriptionId: string;
+    stripePriceId: string | null;
+    status: string;
+    currentPeriodEnd: string | null;
+    cancelAtPeriodEnd: number;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+
+  const row = rows[0];
+
+  return {
+    id: row.id,
+    userId: row.userId,
+    stripeSubscriptionId: row.stripeSubscriptionId,
+    stripePriceId: row.stripePriceId,
+    status: row.status,
+    currentPeriodEnd: row.currentPeriodEnd ? new Date(row.currentPeriodEnd).toISOString() : null,
+    cancelAtPeriodEnd: Boolean(row.cancelAtPeriodEnd),
+    createdAt: new Date(row.createdAt).toISOString(),
+    updatedAt: new Date(row.updatedAt).toISOString(),
+  };
 }
 
 export function insertOrMergeReport(input: ReportInput): { id: number; merged: boolean } {
@@ -235,60 +493,6 @@ export function getRecentReports(limit: number): ScamReportRecord[] {
       count: Number.isFinite(row.count) ? row.count : 1,
     };
   });
-}
-
-
-function escapeSqlString(value: string): string {
-  return value.replaceAll("'", "''");
-}
-
-function randomId(): string {
-  return crypto.randomUUID();
-}
-
-export function upsertUserByEmail(input: { email: string; name?: string | null; image?: string | null }): UserRecord {
-  applyMigrations();
-
-  const email = input.email.trim().toLowerCase();
-  const name = input.name?.trim() || null;
-  const image = input.image?.trim() || null;
-
-  const existingOutput = runSql(`SELECT id, name, email, image FROM User WHERE email = '${escapeSqlString(email)}' LIMIT 1;`);
-  const existingRows = existingOutput.trim()
-    ? (JSON.parse(existingOutput) as Array<{ id: string; name: string | null; email: string; image: string | null }>)
-    : [];
-
-  const existing = existingRows[0];
-
-  if (existing) {
-    runSql(`
-      UPDATE User
-      SET
-        name = COALESCE(${name ? `'${escapeSqlString(name)}'` : 'NULL'}, name),
-        image = COALESCE(${image ? `'${escapeSqlString(image)}'` : 'NULL'}, image)
-      WHERE id = '${escapeSqlString(existing.id)}';
-    `);
-
-    return {
-      ...existing,
-      name: name ?? existing.name,
-      image: image ?? existing.image,
-    };
-  }
-
-  const id = randomId();
-
-  runSql(`
-    INSERT INTO User (id, name, email, image)
-    VALUES (
-      '${escapeSqlString(id)}',
-      ${name ? `'${escapeSqlString(name)}'` : 'NULL'},
-      '${escapeSqlString(email)}',
-      ${image ? `'${escapeSqlString(image)}'` : 'NULL'}
-    );
-  `);
-
-  return { id, name, email, image };
 }
 
 export function saveCheckForUser(input: {

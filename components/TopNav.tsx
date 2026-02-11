@@ -8,6 +8,7 @@ const LINKS = [
   { href: '/', label: 'Analyzer' },
   { href: '/reports', label: 'Public feed' },
   { href: '/me/history', label: 'My History' },
+  { href: '/pricing', label: 'Pricing' },
   { href: '/privacy', label: 'Privacy' },
 ];
 
