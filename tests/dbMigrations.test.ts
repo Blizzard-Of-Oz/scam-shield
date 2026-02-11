@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 describe('applyMigrations', () => {
-  it('adds missing columns before creating indexes on existing legacy tables', () => {
+  it('adds missing columns and backfills updatedAt on existing legacy tables', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'scam-shield-db-test-'));
     tempDirs.push(dir);
 
@@ -39,6 +39,9 @@ describe('applyMigrations', () => {
           note TEXT,
           urls TEXT NOT NULL
         );
+
+        INSERT INTO ScamReport (verdict, score, scamType, note, urls)
+        VALUES ('SUSPICIOUS', 70, 'Other', 'legacy row', '["https://example.com"]');
       `,
       ]);
 
@@ -53,6 +56,16 @@ describe('applyMigrations', () => {
       expect(columnNames).toContain('urlHash');
       expect(columnNames).toContain('count');
       expect(columnNames).toContain('updatedAt');
+
+      const legacyRowsJson = execFileSync(
+        'sqlite3',
+        ['-json', dbPath, 'SELECT createdAt, updatedAt FROM ScamReport LIMIT 1;'],
+        { encoding: 'utf-8' }
+      );
+      const legacyRow = (JSON.parse(legacyRowsJson) as Array<{ createdAt: string; updatedAt: string | null }>)[0];
+
+      expect(legacyRow.updatedAt).toBeTruthy();
+      expect(legacyRow.updatedAt).toBe(legacyRow.createdAt);
     } finally {
       process.env.DATABASE_URL = previousUrl;
     }

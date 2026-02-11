@@ -57,7 +57,7 @@ export function applyMigrations() {
   runSql(createTableSql);
   ensureColumn('ScamReport', 'urlHash', 'TEXT');
   ensureColumn('ScamReport', 'count', 'INTEGER NOT NULL DEFAULT 1');
-  ensureColumn('ScamReport', 'updatedAt', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP');
+  ensureColumn('ScamReport', 'updatedAt', 'DATETIME');
 
   runSql(`CREATE INDEX IF NOT EXISTS ScamReport_urlHash_idx ON ScamReport(urlHash);`);
   runSql(`CREATE INDEX IF NOT EXISTS ScamReport_updatedAt_idx ON ScamReport(updatedAt);`);
