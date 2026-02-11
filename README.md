@@ -10,8 +10,13 @@ Scam Shield is a privacy-first Progressive Web App (PWA-ready foundation) that h
 - Tailwind CSS for a clean, lightweight UI
 - Home page scanner flow (`/`)
 - Privacy page (`/privacy`)
-- API route (`POST /api/analyze`) with rules-based analysis and URL extraction
-- Unit tests for core analyzer utilities
+- Public reports feed (`/reports`)
+- API routes:
+  - `POST /api/analyze`
+  - `POST /api/report`
+  - `GET /api/reports?limit=20`
+- SQLite-backed report storage
+- Unit tests for analyzer and report validation utilities
 - ESLint + Prettier setup
 - GitHub Actions CI for lint + tests on push and pull requests
 
@@ -20,11 +25,15 @@ Scam Shield is a privacy-first Progressive Web App (PWA-ready foundation) that h
 Scam Shield is built privacy-first:
 
 - No authentication required
-- No database configured
-- No storage of submitted message content by default
+- User message text is **not** persisted as a full raw submission
+- Stored report data includes only:
+  - sanitized URLs (`http/https` only)
+  - verdict + score
+  - optional scam type
+  - optional short note (max 280 chars)
+  - timestamp
+- Report sharing requires explicit user opt-in confirmations
 - No external paid APIs
-
-The analyzer runs using simple in-process logic and returns only the computed assessment.
 
 ## Quick start (local)
 
@@ -34,7 +43,14 @@ The analyzer runs using simple in-process logic and returns only the computed as
 npm install
 ```
 
-### 2) Run the app
+### 2) Database setup
+
+```bash
+npm run db:generate
+npm run db:migrate
+```
+
+### 3) Run the app
 
 ```bash
 npm run dev
@@ -62,9 +78,9 @@ npm run test
 npm run format
 ```
 
-## API contract
+## API contracts
 
-`POST /api/analyze`
+### `POST /api/analyze`
 
 Request JSON:
 
@@ -83,6 +99,46 @@ Response JSON:
 }
 ```
 
+### `POST /api/report`
+
+Request JSON:
+
+```json
+{
+  "verdict": "SUSPICIOUS",
+  "score": 61,
+  "scamType": "Delivery",
+  "note": "optional, max 280 chars",
+  "urls": ["https://example.com"]
+}
+```
+
+Response JSON:
+
+```json
+{ "ok": true, "id": 1 }
+```
+
+### `GET /api/reports?limit=20`
+
+Response JSON:
+
+```json
+{
+  "reports": [
+    {
+      "id": 1,
+      "createdAt": "2026-02-11T00:00:00.000Z",
+      "verdict": "DANGEROUS",
+      "score": 85,
+      "scamType": "Bank impersonation",
+      "note": "optional note",
+      "urls": ["https://example.com"]
+    }
+  ]
+}
+```
+
 ## Sharing behavior
 
 On the home page results panel, Scam Shield supports growth-friendly sharing while keeping user input private:
@@ -94,7 +150,6 @@ On the home page results panel, Scam Shield supports growth-friendly sharing whi
 ## Roadmap
 
 - Add client-side safeguards for risky link previews
-- Add optional, explicit user-consent telemetry (off by default)
 - Improve scoring explainability and false-positive tuning
 - Add localization support
 - Add offline caching and installable PWA manifest/service worker

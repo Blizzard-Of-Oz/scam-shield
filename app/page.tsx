@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { FormEvent, useState } from 'react';
+import { FormEvent, useMemo, useState } from 'react';
 import { VerdictBadge } from '@/components/VerdictBadge';
 import type { AnalysisResult } from '@/lib/analyzer';
+import { SCAM_TYPES } from '@/lib/reporting';
 import { formatVerdictSummary } from '@/lib/shareFormat';
 
 const EXAMPLE_SCAM =
@@ -12,6 +13,8 @@ const EXAMPLE_SCAM =
 const EXAMPLE_NORMAL =
   'Hi team, reminder that our meeting is tomorrow at 10 AM. Agenda is in the company drive.';
 
+const REPORTABLE_VERDICTS = new Set(['SUSPICIOUS', 'DANGEROUS']);
+
 export default function HomePage() {
   const [text, setText] = useState('');
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -19,10 +22,23 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [shareMessage, setShareMessage] = useState<string | null>(null);
 
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportScamType, setReportScamType] = useState('');
+  const [reportNote, setReportNote] = useState('');
+  const [confirmNoPersonalInfo, setConfirmNoPersonalInfo] = useState(false);
+  const [confirmConsent, setConfirmConsent] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportMessage, setReportMessage] = useState<string | null>(null);
+
+  const canReport = Boolean(result && REPORTABLE_VERDICTS.has(result.verdict));
+
+  const reportUrls = useMemo(() => result?.urls ?? [], [result]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setShareMessage(null);
+    setReportMessage(null);
     setLoading(true);
 
     try {
@@ -40,6 +56,11 @@ export default function HomePage() {
 
       const data = (await response.json()) as AnalysisResult;
       setResult(data);
+      setReportOpen(false);
+      setReportScamType('');
+      setReportNote('');
+      setConfirmNoPersonalInfo(false);
+      setConfirmConsent(false);
     } catch {
       setError('Something went wrong. Please try again.');
     } finally {
@@ -52,6 +73,8 @@ export default function HomePage() {
     setResult(null);
     setError(null);
     setShareMessage(null);
+    setReportMessage(null);
+    setReportOpen(false);
   }
 
   async function copyVerdictSummary() {
@@ -93,6 +116,49 @@ export default function HomePage() {
       setShareMessage('Share is unavailable here, so the verdict was copied.');
     } catch {
       setShareMessage('Share and clipboard are unavailable in this browser.');
+    }
+  }
+
+  async function submitReport() {
+    if (!result) {
+      return;
+    }
+
+    setReportLoading(true);
+    setReportMessage(null);
+
+    try {
+      const response = await fetch('/api/report', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          verdict: result.verdict,
+          score: result.score,
+          scamType: reportScamType || undefined,
+          note: reportNote || undefined,
+          urls: reportUrls,
+        }),
+      });
+
+      const data = (await response.json()) as { ok?: boolean; error?: string; id?: number };
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || 'Unable to submit report.');
+      }
+
+      setReportMessage(`Report submitted. Reference #${data.id}`);
+      setReportOpen(false);
+      setReportScamType('');
+      setReportNote('');
+      setConfirmNoPersonalInfo(false);
+      setConfirmConsent(false);
+    } catch (submitError) {
+      const message = submitError instanceof Error ? submitError.message : 'Unable to submit report.';
+      setReportMessage(message);
+    } finally {
+      setReportLoading(false);
     }
   }
 
@@ -221,9 +287,121 @@ export default function HomePage() {
             >
               Share
             </button>
+            {canReport ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setReportOpen((open) => !open);
+                  setReportMessage(null);
+                }}
+                className="inline-flex items-center justify-center rounded-xl border border-brand-400 px-4 py-2 text-sm font-semibold text-brand-700 transition hover:bg-brand-50"
+              >
+                {reportOpen ? 'Cancel report' : 'Report scam'}
+              </button>
+            ) : null}
+            <Link
+              href="/reports"
+              className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              View public feed
+            </Link>
           </div>
 
+          {canReport && reportOpen ? (
+            <section className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <h3 className="text-base font-semibold text-slate-900">Share this report (privacy-first)</h3>
+              <p className="text-sm text-slate-600">
+                We only store sanitized URLs, verdict/score, optional scam type, optional short note, and timestamp.
+              </p>
+
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Detected URLs</h4>
+                {reportUrls.length > 0 ? (
+                  <ul className="mt-2 space-y-1 text-sm text-slate-700">
+                    {reportUrls.map((url) => (
+                      <li key={`report-${url}`} className="break-all rounded bg-white px-2 py-1">
+                        {url}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-sm text-red-600">No URLs found, so this report cannot be submitted.</p>
+                )}
+              </div>
+
+              <label className="block space-y-1 text-sm">
+                <span className="font-medium text-slate-700">Scam type (optional)</span>
+                <select
+                  value={reportScamType}
+                  onChange={(event) => setReportScamType(event.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900"
+                >
+                  <option value="">Select a category</option>
+                  {SCAM_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block space-y-1 text-sm">
+                <span className="font-medium text-slate-700">Optional note (max 280 chars)</span>
+                <textarea
+                  rows={3}
+                  maxLength={280}
+                  value={reportNote}
+                  onChange={(event) => setReportNote(event.target.value)}
+                  placeholder="Avoid names, phone numbers, account IDs, and one-time codes."
+                  className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900"
+                />
+                <span className="text-xs text-amber-700">
+                  Warning: Do not include personal data (names, numbers, addresses, IDs, or codes).
+                </span>
+              </label>
+
+              <label className="flex items-start gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={confirmNoPersonalInfo}
+                  onChange={(event) => setConfirmNoPersonalInfo(event.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>I confirm I removed personal info (names, numbers, codes).</span>
+              </label>
+
+              <label className="flex items-start gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={confirmConsent}
+                  onChange={(event) => setConfirmConsent(event.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>I consent to share these URLs for scam intelligence.</span>
+              </label>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={submitReport}
+                  disabled={!confirmNoPersonalInfo || !confirmConsent || reportUrls.length === 0 || reportLoading}
+                  className="inline-flex items-center justify-center rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {reportLoading ? 'Submitting…' : 'Submit report'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReportOpen(false)}
+                  className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+              </div>
+            </section>
+          ) : null}
+
           {shareMessage ? <p className="text-sm text-slate-600">{shareMessage}</p> : null}
+          {reportMessage ? <p className="text-sm text-slate-600">{reportMessage}</p> : null}
 
           <p className="text-sm text-slate-600">
             Disclaimer: This tool provides a conservative risk assessment, not certainty. Always verify through

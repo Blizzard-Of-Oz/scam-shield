@@ -1,0 +1,18 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model ScamReport {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now())
+  verdict   String
+  score     Int
+  scamType  String?
+  note      String?
+  urls      String
+}
