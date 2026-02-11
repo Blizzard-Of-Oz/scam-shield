@@ -65,6 +65,23 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+
+## Auth setup (Google)
+
+Scam Shield uses Auth.js (NextAuth) with Google OAuth for optional user accounts.
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/), create/select a project.
+2. Configure the OAuth consent screen (External is fine for local dev).
+3. Create **OAuth client ID** credentials with application type **Web application**.
+4. Add this authorized redirect URI:
+   - `http://localhost:3000/api/auth/callback/google`
+5. Copy `.env.example` to `.env.local` and fill:
+   - `GOOGLE_CLIENT_ID`
+   - `GOOGLE_CLIENT_SECRET`
+   - `NEXTAUTH_SECRET` (generate a long random string)
+   - `NEXTAUTH_URL=http://localhost:3000`
+6. Start the app with `npm run dev` and sign in from the top navigation.
+
 ## Run checks
 
 ### Lint
@@ -150,6 +167,50 @@ Response JSON:
       "note": "optional note",
       "urls": ["https://example.com"],
       "count": 2
+    }
+  ]
+}
+```
+
+
+### `POST /api/save-check` (auth required)
+
+Request JSON:
+
+```json
+{
+  "verdict": "SUSPICIOUS",
+  "score": 61,
+  "reasons": ["Contains one or more links that should be verified carefully."],
+  "urls": ["https://example.com/path?a=1"]
+}
+```
+
+Response JSON:
+
+```json
+{ "ok": true, "check": { "id": "..." } }
+```
+
+Storage policy for saved checks:
+
+- Never stores the full pasted message text.
+- Stores only `verdict`, `score`, `reasons`, and detected URL hostnames (`domains`).
+
+### `GET /api/my-checks` (auth required)
+
+Response JSON:
+
+```json
+{
+  "checks": [
+    {
+      "id": "...",
+      "createdAt": "2026-02-11T00:00:00.000Z",
+      "verdict": "DANGEROUS",
+      "score": 85,
+      "reasons": ["..."],
+      "domains": ["example.com"]
     }
   ]
 }

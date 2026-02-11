@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { TopNav } from '@/components/TopNav';
+import { Providers } from '@/components/Providers';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -15,10 +16,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <div className="mx-auto min-h-screen max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
-          <TopNav />
-          {children}
-        </div>
+        <Providers>
+          <div className="mx-auto min-h-screen max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
+            <TopNav />
+            {children}
+          </div>
+        </Providers>
       </body>
     </html>
   );

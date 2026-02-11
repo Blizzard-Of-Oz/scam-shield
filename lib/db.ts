@@ -1,8 +1,29 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { hashUrls } from '@/lib/urlHash';
 import { SCAM_TYPES, type ReportInput, type ScamReportRecord } from '@/lib/reporting';
+import type { Verdict } from '@/lib/analyzer';
+
+
+
+export type UserRecord = {
+  id: string;
+  name: string | null;
+  email: string;
+  image: string | null;
+};
+
+export type SavedCheckRecord = {
+  id: string;
+  createdAt: string;
+  userId: string;
+  verdict: Verdict;
+  score: number;
+  reasons: string[];
+  domains: string[];
+};
 
 function resolveDbPath(): string {
   const raw = process.env.DATABASE_URL ?? 'file:./prisma/dev.db';
@@ -59,8 +80,36 @@ export function applyMigrations() {
   ensureColumn('ScamReport', 'count', 'INTEGER NOT NULL DEFAULT 1');
   ensureColumn('ScamReport', 'updatedAt', 'DATETIME');
 
+  const createUserTableSql = `
+    CREATE TABLE IF NOT EXISTS User (
+      id TEXT NOT NULL PRIMARY KEY,
+      name TEXT,
+      email TEXT NOT NULL UNIQUE,
+      emailVerified DATETIME,
+      image TEXT
+    );
+  `;
+
+  const createSavedCheckTableSql = `
+    CREATE TABLE IF NOT EXISTS SavedCheck (
+      id TEXT NOT NULL PRIMARY KEY,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      userId TEXT NOT NULL,
+      verdict TEXT NOT NULL,
+      score INTEGER NOT NULL,
+      reasons TEXT NOT NULL,
+      domains TEXT NOT NULL,
+      FOREIGN KEY (userId) REFERENCES User(id) ON DELETE CASCADE ON UPDATE CASCADE
+    );
+  `;
+
+  runSql(createUserTableSql);
+  runSql(createSavedCheckTableSql);
+
   runSql(`CREATE INDEX IF NOT EXISTS ScamReport_urlHash_idx ON ScamReport(urlHash);`);
   runSql(`CREATE INDEX IF NOT EXISTS ScamReport_updatedAt_idx ON ScamReport(updatedAt);`);
+  runSql(`CREATE UNIQUE INDEX IF NOT EXISTS User_email_key ON User(email);`);
+  runSql(`CREATE INDEX IF NOT EXISTS SavedCheck_userId_createdAt_idx ON SavedCheck(userId, createdAt);`);
 
   runSql(`UPDATE ScamReport SET urlHash = '' WHERE urlHash IS NULL;`);
   runSql(`UPDATE ScamReport SET updatedAt = createdAt WHERE updatedAt IS NULL;`);
@@ -186,4 +235,147 @@ export function getRecentReports(limit: number): ScamReportRecord[] {
       count: Number.isFinite(row.count) ? row.count : 1,
     };
   });
+}
+
+
+function escapeSqlString(value: string): string {
+  return value.replaceAll("'", "''");
+}
+
+function randomId(): string {
+  return crypto.randomUUID();
+}
+
+export function upsertUserByEmail(input: { email: string; name?: string | null; image?: string | null }): UserRecord {
+  applyMigrations();
+
+  const email = input.email.trim().toLowerCase();
+  const name = input.name?.trim() || null;
+  const image = input.image?.trim() || null;
+
+  const existingOutput = runSql(`SELECT id, name, email, image FROM User WHERE email = '${escapeSqlString(email)}' LIMIT 1;`);
+  const existingRows = existingOutput.trim()
+    ? (JSON.parse(existingOutput) as Array<{ id: string; name: string | null; email: string; image: string | null }>)
+    : [];
+
+  const existing = existingRows[0];
+
+  if (existing) {
+    runSql(`
+      UPDATE User
+      SET
+        name = COALESCE(${name ? `'${escapeSqlString(name)}'` : 'NULL'}, name),
+        image = COALESCE(${image ? `'${escapeSqlString(image)}'` : 'NULL'}, image)
+      WHERE id = '${escapeSqlString(existing.id)}';
+    `);
+
+    return {
+      ...existing,
+      name: name ?? existing.name,
+      image: image ?? existing.image,
+    };
+  }
+
+  const id = randomId();
+
+  runSql(`
+    INSERT INTO User (id, name, email, image)
+    VALUES (
+      '${escapeSqlString(id)}',
+      ${name ? `'${escapeSqlString(name)}'` : 'NULL'},
+      '${escapeSqlString(email)}',
+      ${image ? `'${escapeSqlString(image)}'` : 'NULL'}
+    );
+  `);
+
+  return { id, name, email, image };
+}
+
+export function saveCheckForUser(input: {
+  userId: string;
+  verdict: Verdict;
+  score: number;
+  reasons: string[];
+  domains: string[];
+}): SavedCheckRecord {
+  applyMigrations();
+
+  const id = randomId();
+  const safeUserId = escapeSqlString(input.userId);
+
+  runSql(`
+    INSERT INTO SavedCheck (id, userId, verdict, score, reasons, domains)
+    VALUES (
+      '${escapeSqlString(id)}',
+      '${safeUserId}',
+      '${escapeSqlString(input.verdict)}',
+      ${Math.round(input.score)},
+      '${escapeSqlString(JSON.stringify(input.reasons))}',
+      '${escapeSqlString(JSON.stringify(input.domains))}'
+    );
+  `);
+
+  const output = runSql(`
+    SELECT id, createdAt, userId, verdict, score, reasons, domains
+    FROM SavedCheck
+    WHERE id = '${escapeSqlString(id)}'
+    LIMIT 1;
+  `);
+
+  const rows = JSON.parse(output) as Array<{
+    id: string;
+    createdAt: string;
+    userId: string;
+    verdict: Verdict;
+    score: number;
+    reasons: string;
+    domains: string;
+  }>;
+
+  const row = rows[0];
+
+  return {
+    id: row.id,
+    createdAt: new Date(row.createdAt).toISOString(),
+    userId: row.userId,
+    verdict: row.verdict,
+    score: row.score,
+    reasons: JSON.parse(row.reasons) as string[],
+    domains: JSON.parse(row.domains) as string[],
+  };
+}
+
+export function getSavedChecksForUser(userId: string): SavedCheckRecord[] {
+  applyMigrations();
+
+  const output = runSql(`
+    SELECT id, createdAt, userId, verdict, score, reasons, domains
+    FROM SavedCheck
+    WHERE userId = '${escapeSqlString(userId)}'
+    ORDER BY datetime(createdAt) DESC;
+  `);
+
+  if (!output.trim()) {
+    return [];
+  }
+
+  const rows = JSON.parse(output) as Array<{
+    id: string;
+    createdAt: string;
+    userId: string;
+    verdict: Verdict;
+    score: number;
+    reasons: string;
+    domains: string;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    createdAt: new Date(row.createdAt).toISOString(),
+    userId: row.userId,
+    verdict: row.verdict,
+    score: row.score,
+    reasons: JSON.parse(row.reasons) as string[],
+    domains: JSON.parse(row.domains) as string[],
+  }));
 }

@@ -1,16 +1,19 @@
 'use client';
 
 import Link from 'next/link';
+import { signIn, signOut, useSession } from 'next-auth/react';
 import { usePathname } from 'next/navigation';
 
 const LINKS = [
   { href: '/', label: 'Analyzer' },
   { href: '/reports', label: 'Public feed' },
+  { href: '/me/history', label: 'My History' },
   { href: '/privacy', label: 'Privacy' },
 ];
 
 export function TopNav() {
   const pathname = usePathname();
+  const { data: session, status } = useSession();
 
   return (
     <header className="mb-8 border-b border-slate-200 pb-4">
@@ -37,6 +40,28 @@ export function TopNav() {
               </Link>
             );
           })}
+
+          {status === 'loading' ? (
+            <span className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-500">
+              Loading…
+            </span>
+          ) : session?.user ? (
+            <button
+              type="button"
+              onClick={() => signOut()}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+            >
+              Sign out
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => signIn('google')}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+            >
+              Sign in
+            </button>
+          )}
         </nav>
       </div>
     </header>

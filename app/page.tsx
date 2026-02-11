@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { FormEvent, useMemo, useState } from 'react';
+import { signIn, useSession } from 'next-auth/react';
 import { VerdictBadge } from '@/components/VerdictBadge';
 import type { AnalysisResult } from '@/lib/analyzer';
 import { SCAM_TYPES } from '@/lib/reporting';
@@ -31,6 +32,10 @@ export default function HomePage() {
   const [reportLoading, setReportLoading] = useState(false);
   const [reportMessage, setReportMessage] = useState<string | null>(null);
   const [reportSubmitted, setReportSubmitted] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+  const { data: session } = useSession();
 
   const canReport = Boolean(result && REPORTABLE_VERDICTS.has(result.verdict));
 
@@ -41,6 +46,7 @@ export default function HomePage() {
     setError(null);
     setShareMessage(null);
     setReportMessage(null);
+    setSaveMessage(null);
     setLoading(true);
 
     try {
@@ -79,6 +85,7 @@ export default function HomePage() {
     setReportMessage(null);
     setReportOpen(false);
     setReportSubmitted(false);
+    setSaveMessage(null);
   }
 
   async function copyVerdictSummary() {
@@ -187,6 +194,43 @@ export default function HomePage() {
       setReportMessage(message);
     } finally {
       setReportLoading(false);
+    }
+  }
+
+  async function saveToMyHistory() {
+    if (!result) {
+      return;
+    }
+
+    setSaveLoading(true);
+    setSaveMessage(null);
+
+    try {
+      const response = await fetch('/api/save-check', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          verdict: result.verdict,
+          score: result.score,
+          reasons: result.reasons,
+          urls: result.urls,
+        }),
+      });
+
+      const data = (await response.json()) as { ok?: boolean; error?: string };
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || 'Unable to save this check.');
+      }
+
+      setSaveMessage('Saved to your private history.');
+    } catch (saveError) {
+      const message = saveError instanceof Error ? saveError.message : 'Unable to save this check.';
+      setSaveMessage(message);
+    } finally {
+      setSaveLoading(false);
     }
   }
 
@@ -341,6 +385,24 @@ export default function HomePage() {
             >
               Download image
             </button>
+            {session?.user ? (
+              <button
+                type="button"
+                onClick={saveToMyHistory}
+                disabled={saveLoading}
+                className="inline-flex items-center justify-center rounded-xl border border-brand-400 px-4 py-2 text-sm font-semibold text-brand-700 transition hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {saveLoading ? 'Saving…' : 'Save to my history'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => signIn('google')}
+                className="inline-flex items-center justify-center rounded-xl border border-brand-300 px-4 py-2 text-sm font-semibold text-brand-700 transition hover:bg-brand-50"
+              >
+                Sign in to save
+              </button>
+            )}
             {canReport ? (
               <button
                 type="button"
@@ -462,6 +524,7 @@ export default function HomePage() {
           ) : null}
 
           {shareMessage ? <p className="text-sm text-slate-600">{shareMessage}</p> : null}
+          {saveMessage ? <p className="text-sm text-slate-600">{saveMessage}</p> : null}
           {reportMessage ? (
             <div
               className={`rounded-xl border p-3 text-sm ${
@@ -491,8 +554,7 @@ export default function HomePage() {
 
       <footer className="space-y-3 text-sm text-slate-600">
         <p>
-          We are privacy-first by default and do not store submissions. Shared text includes only
-          verdict details, never the full original message. Learn more on our{' '}
+          We are privacy-first by default. Public reporting and private history save only verdict details, reasons, and detected domains — never the full original message. Learn more on our{' '}
           <Link
             href="/privacy"
             className="font-medium text-brand-700 underline-offset-4 hover:underline"
