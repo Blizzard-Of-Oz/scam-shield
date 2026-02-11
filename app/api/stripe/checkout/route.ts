@@ -15,39 +15,48 @@ export async function POST() {
   const appUrl = process.env.NEXTAUTH_URL ?? 'http://localhost:3000';
 
   if (!priceId) {
-    return NextResponse.json({ error: 'Missing STRIPE_PRICE_ID' }, { status: 500 });
+    return NextResponse.json({ error: 'Missing STRIPE_PRICE_ID. Configure Stripe test price first.' }, { status: 400 });
   }
 
-  const user = upsertUserByEmail({
-    email: session.user.email,
-    name: session.user.name,
-    image: session.user.image,
-  });
+  if (!process.env.STRIPE_SECRET_KEY) {
+    return NextResponse.json({ error: 'Missing STRIPE_SECRET_KEY. Configure Stripe secret key first.' }, { status: 400 });
+  }
 
-  let customerId = user.stripeCustomerId;
+  try {
+    const user = upsertUserByEmail({
+      email: session.user.email,
+      name: session.user.name,
+      image: session.user.image,
+    });
 
-  if (!customerId) {
-    const customer = await createStripeCustomer({
-      email: user.email,
-      name: user.name,
+    let customerId = user.stripeCustomerId;
+
+    if (!customerId) {
+      const customer = await createStripeCustomer({
+        email: user.email,
+        name: user.name,
+        metadata: { userId: user.id },
+      });
+
+      customerId = customer.id;
+      setUserStripeCustomerId(user.id, customer.id);
+    }
+
+    const checkoutSession = await createCheckoutSession({
+      customer: customerId,
+      priceId,
+      successUrl: `${appUrl}/me/history?upgraded=1`,
+      cancelUrl: `${appUrl}/pricing`,
       metadata: { userId: user.id },
     });
 
-    customerId = customer.id;
-    setUserStripeCustomerId(user.id, customer.id);
+    if (!checkoutSession.url) {
+      return NextResponse.json({ error: 'Unable to create checkout session.' }, { status: 502 });
+    }
+
+    return NextResponse.json({ url: checkoutSession.url }, { status: 200 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Stripe checkout failed.';
+    return NextResponse.json({ error: message }, { status: 502 });
   }
-
-  const checkoutSession = await createCheckoutSession({
-    customer: customerId,
-    priceId,
-    successUrl: `${appUrl}/me/history?upgraded=1`,
-    cancelUrl: `${appUrl}/pricing`,
-    metadata: { userId: user.id },
-  });
-
-  if (!checkoutSession.url) {
-    return NextResponse.json({ error: 'Unable to create checkout session.' }, { status: 500 });
-  }
-
-  return NextResponse.json({ url: checkoutSession.url }, { status: 200 });
 }

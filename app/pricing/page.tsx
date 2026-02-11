@@ -1,14 +1,44 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { signIn, useSession } from 'next-auth/react';
+
+type StripeConfig = {
+  configured: boolean;
+  missing: string[];
+};
 
 export default function PricingPage() {
   const { data: session, status } = useSession();
   const [loading, setLoading] = useState<'checkout' | 'portal' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [stripeConfig, setStripeConfig] = useState<StripeConfig>({ configured: false, missing: [] });
+  const [configLoading, setConfigLoading] = useState(true);
 
   const plan = session?.user?.plan === 'pro' ? 'pro' : 'free';
+
+  useEffect(() => {
+    async function loadStripeConfig() {
+      setConfigLoading(true);
+
+      try {
+        const response = await fetch('/api/stripe/config', { method: 'GET' });
+        const data = (await response.json()) as StripeConfig;
+
+        if (!response.ok) {
+          throw new Error('Unable to load Stripe config status.');
+        }
+
+        setStripeConfig(data);
+      } catch {
+        setStripeConfig({ configured: false, missing: ['STRIPE_PRICE_ID', 'STRIPE_SECRET_KEY'] });
+      } finally {
+        setConfigLoading(false);
+      }
+    }
+
+    void loadStripeConfig();
+  }, []);
 
   async function redirectTo(path: '/api/stripe/checkout' | '/api/stripe/portal', mode: 'checkout' | 'portal') {
     setLoading(mode);
@@ -29,6 +59,8 @@ export default function PricingPage() {
       setLoading(null);
     }
   }
+
+  const isStripeReady = stripeConfig.configured;
 
   return (
     <main className="space-y-6">
@@ -58,7 +90,7 @@ export default function PricingPage() {
           </ul>
 
           <div className="mt-5">
-            {status === 'loading' ? (
+            {status === 'loading' || configLoading ? (
               <p className="text-sm text-slate-600">Loading account…</p>
             ) : !session?.user ? (
               <button
@@ -71,7 +103,7 @@ export default function PricingPage() {
             ) : plan === 'free' ? (
               <button
                 type="button"
-                disabled={loading !== null}
+                disabled={loading !== null || !isStripeReady}
                 onClick={() => redirectTo('/api/stripe/checkout', 'checkout')}
                 className="rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -80,7 +112,7 @@ export default function PricingPage() {
             ) : (
               <button
                 type="button"
-                disabled={loading !== null}
+                disabled={loading !== null || !isStripeReady}
                 onClick={() => redirectTo('/api/stripe/portal', 'portal')}
                 className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -88,6 +120,12 @@ export default function PricingPage() {
               </button>
             )}
           </div>
+
+          {!configLoading && !isStripeReady ? (
+            <p className="mt-3 text-sm text-red-600">
+              Stripe is not configured yet. Missing: {stripeConfig.missing.join(', ')}.
+            </p>
+          ) : null}
 
           {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
         </article>

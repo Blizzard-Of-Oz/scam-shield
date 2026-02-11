@@ -112,6 +112,13 @@ To test events manually, use Stripe CLI triggers (for example):
 stripe trigger checkout.session.completed
 ```
 
+
+If the Pricing page shows **Stripe is not configured yet**, verify `.env.local` includes all required Stripe variables and restart the dev server. You can also check config status via:
+
+```bash
+curl http://localhost:3000/api/stripe/config
+```
+
 ## Run checks
 
 ### Lint
