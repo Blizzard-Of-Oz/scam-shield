@@ -11,6 +11,7 @@ Scam Shield is a privacy-first Progressive Web App (PWA-ready foundation) that h
 - Home page scanner flow (`/`)
 - Privacy page (`/privacy`)
 - Public reports feed (`/reports`)
+- Global top navigation with direct links to Analyzer, Public feed (`/reports`), and Privacy
 - API routes:
   - `POST /api/analyze`
   - `POST /api/report`

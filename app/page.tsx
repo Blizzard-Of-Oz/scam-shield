@@ -29,6 +29,7 @@ export default function HomePage() {
   const [confirmConsent, setConfirmConsent] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportMessage, setReportMessage] = useState<string | null>(null);
+  const [reportSubmitted, setReportSubmitted] = useState(false);
 
   const canReport = Boolean(result && REPORTABLE_VERDICTS.has(result.verdict));
 
@@ -57,6 +58,7 @@ export default function HomePage() {
       const data = (await response.json()) as AnalysisResult;
       setResult(data);
       setReportOpen(false);
+      setReportSubmitted(false);
       setReportScamType('');
       setReportNote('');
       setConfirmNoPersonalInfo(false);
@@ -75,6 +77,7 @@ export default function HomePage() {
     setShareMessage(null);
     setReportMessage(null);
     setReportOpen(false);
+    setReportSubmitted(false);
   }
 
   async function copyVerdictSummary() {
@@ -148,14 +151,17 @@ export default function HomePage() {
         throw new Error(data.error || 'Unable to submit report.');
       }
 
-      setReportMessage(`Report submitted. Reference #${data.id}`);
+      setReportMessage('Thanks — your report was shared (privacy-first).');
+      setReportSubmitted(true);
       setReportOpen(false);
       setReportScamType('');
       setReportNote('');
       setConfirmNoPersonalInfo(false);
       setConfirmConsent(false);
     } catch (submitError) {
-      const message = submitError instanceof Error ? submitError.message : 'Unable to submit report.';
+      const message =
+        submitError instanceof Error ? submitError.message : 'Unable to submit report.';
+      setReportSubmitted(false);
       setReportMessage(message);
     } finally {
       setReportLoading(false);
@@ -166,13 +172,18 @@ export default function HomePage() {
     <main className="space-y-8">
       <header className="space-y-3">
         <p className="text-sm font-medium uppercase tracking-wide text-brand-700">Scam Shield</p>
-        <h1 className="text-3xl font-bold text-slate-900 sm:text-4xl">Risk check for suspicious messages</h1>
+        <h1 className="text-3xl font-bold text-slate-900 sm:text-4xl">
+          Risk check for suspicious messages
+        </h1>
         <p className="text-slate-600">
           Paste a message or link to get a quick, privacy-first risk assessment.
         </p>
       </header>
 
-      <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+      >
         <label htmlFor="scam-input" className="block text-sm font-medium text-slate-700">
           Message or link
         </label>
@@ -242,7 +253,9 @@ export default function HomePage() {
           </div>
 
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Reasons</h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Reasons
+            </h3>
             <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-700">
               {result.reasons.map((reason) => (
                 <li key={reason}>{reason}</li>
@@ -251,7 +264,9 @@ export default function HomePage() {
           </div>
 
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Detected URLs</h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Detected URLs
+            </h3>
             {result.urls.length > 0 ? (
               <ul className="mt-2 space-y-1 text-sm text-slate-700">
                 {result.urls.map((url) => (
@@ -270,6 +285,16 @@ export default function HomePage() {
             ) : (
               <p className="mt-2 text-sm text-slate-600">No URLs found.</p>
             )}
+          </div>
+
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-brand-50 px-3 py-2">
+            <p className="text-sm text-brand-900">Want recent community intel?</p>
+            <Link
+              href="/reports"
+              className="inline-flex items-center justify-center rounded-lg border border-brand-300 px-3 py-1.5 text-sm font-semibold text-brand-800 transition hover:bg-brand-100"
+            >
+              View public feed
+            </Link>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -293,29 +318,29 @@ export default function HomePage() {
                 onClick={() => {
                   setReportOpen((open) => !open);
                   setReportMessage(null);
+                  setReportSubmitted(false);
                 }}
                 className="inline-flex items-center justify-center rounded-xl border border-brand-400 px-4 py-2 text-sm font-semibold text-brand-700 transition hover:bg-brand-50"
               >
                 {reportOpen ? 'Cancel report' : 'Report scam'}
               </button>
             ) : null}
-            <Link
-              href="/reports"
-              className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-            >
-              View public feed
-            </Link>
           </div>
 
           {canReport && reportOpen ? (
             <section className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <h3 className="text-base font-semibold text-slate-900">Share this report (privacy-first)</h3>
+              <h3 className="text-base font-semibold text-slate-900">
+                Share this report (privacy-first)
+              </h3>
               <p className="text-sm text-slate-600">
-                We only store sanitized URLs, verdict/score, optional scam type, optional short note, and timestamp.
+                We only store sanitized URLs, verdict/score, optional scam type, optional short
+                note, and timestamp.
               </p>
 
               <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Detected URLs</h4>
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Detected URLs
+                </h4>
                 {reportUrls.length > 0 ? (
                   <ul className="mt-2 space-y-1 text-sm text-slate-700">
                     {reportUrls.map((url) => (
@@ -325,7 +350,9 @@ export default function HomePage() {
                     ))}
                   </ul>
                 ) : (
-                  <p className="mt-2 text-sm text-red-600">No URLs found, so this report cannot be submitted.</p>
+                  <p className="mt-2 text-sm text-red-600">
+                    No URLs found, so this report cannot be submitted.
+                  </p>
                 )}
               </div>
 
@@ -384,7 +411,12 @@ export default function HomePage() {
                 <button
                   type="button"
                   onClick={submitReport}
-                  disabled={!confirmNoPersonalInfo || !confirmConsent || reportUrls.length === 0 || reportLoading}
+                  disabled={
+                    !confirmNoPersonalInfo ||
+                    !confirmConsent ||
+                    reportUrls.length === 0 ||
+                    reportLoading
+                  }
                   className="inline-flex items-center justify-center rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {reportLoading ? 'Submitting…' : 'Submit report'}
@@ -401,20 +433,41 @@ export default function HomePage() {
           ) : null}
 
           {shareMessage ? <p className="text-sm text-slate-600">{shareMessage}</p> : null}
-          {reportMessage ? <p className="text-sm text-slate-600">{reportMessage}</p> : null}
+          {reportMessage ? (
+            <div
+              className={`rounded-xl border p-3 text-sm ${
+                reportSubmitted
+                  ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
+                  : 'border-slate-200 bg-slate-50 text-slate-700'
+              }`}
+            >
+              <p>{reportMessage}</p>
+              {reportSubmitted ? (
+                <Link
+                  href="/reports"
+                  className="mt-2 inline-flex items-center justify-center rounded-lg border border-emerald-400 px-3 py-1.5 font-semibold text-emerald-800 transition hover:bg-emerald-100"
+                >
+                  View public feed
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
 
           <p className="text-sm text-slate-600">
-            Disclaimer: This tool provides a conservative risk assessment, not certainty. Always verify through
-            trusted channels before taking action.
+            Disclaimer: This tool provides a conservative risk assessment, not certainty. Always
+            verify through trusted channels before taking action.
           </p>
         </section>
       ) : null}
 
       <footer className="space-y-3 text-sm text-slate-600">
         <p>
-          We are privacy-first by default and do not store submissions. Shared text includes only verdict
-          details, never the full original message. Learn more on our{' '}
-          <Link href="/privacy" className="font-medium text-brand-700 underline-offset-4 hover:underline">
+          We are privacy-first by default and do not store submissions. Shared text includes only
+          verdict details, never the full original message. Learn more on our{' '}
+          <Link
+            href="/privacy"
+            className="font-medium text-brand-700 underline-offset-4 hover:underline"
+          >
             privacy page
           </Link>
           .
